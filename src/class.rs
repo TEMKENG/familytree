@@ -1,7 +1,7 @@
+use crate::class_def::*;
+use crate::utils::*;
 use petgraph::Graph;
-use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::fs;
 use std::hash::Hash;
@@ -9,256 +9,35 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
-#[derive(Debug, PartialEq)]
-pub enum Extension {
-    DOT,
-    PNG,
-    PDF,
-    SVG,
-    JSON,
-}
 
-impl Extension {
-    fn from_str(s: &str) -> Result<Extension, String> {
-        match s {
-            "DOT" => Ok(Extension::DOT),
-            "PNG" => Ok(Extension::PNG),
-            "PDF" => Ok(Extension::PDF),
-            "SVG" => Ok(Extension::SVG),
-            "JSON" => Ok(Extension::JSON),
-            _ => Err(format!("Extension '{}' is not yet supported", s)),
-        }
-    }
-
-    fn from_path(path: &Path) -> Result<Extension, String> {
-        let extension = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .ok_or_else(|| {
-                format!(
-                    "Extension::from_path: File '{}' must have an extension",
-                    path.display()
-                )
-            })?;
-
-        Extension::from_str(extension.to_uppercase().as_str())
-    }
-
-    fn get_dot_command(&self, file_in: &Path, file_out: &Path) -> String {
-        match self {
-            Extension::PNG => format!("-Tpng {} -o {}", file_in.display(), file_out.display()),
-            Extension::PDF => format!("-Tpdf {} -o {}", file_in.display(), file_out.display()),
-            Extension::SVG => format!("-Tsvg {} -o {}", file_in.display(), file_out.display()),
-            // Extension::JSON => format!("-Tjson {} -o {}", file_in.display(), file_out.display()),
-            _ => format!("-Tsvg {} -o {}", file_in.display(), file_out.display()),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Gender {
-    Male,
-    Female,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum MaritalStatus {
-    Single,
-    Married(u32),
-    Divorced(u32),
-    Widowed(u32),
-}
-
-impl MaritalStatus {
-    pub fn get_shape(&self) -> String {
-        match self {
-            MaritalStatus::Married(_) => "diamond".to_string(),
-            MaritalStatus::Divorced(_) => "ellipse".to_string(),
-            MaritalStatus::Widowed(_) => "triangle".to_string(),
-            _ => "record".to_string(),
-        }
-    }
-
-    pub fn get_color(&self) -> String {
-        match self {
-            MaritalStatus::Married(_) => "green".to_string(),
-            MaritalStatus::Divorced(_) => "magenta".to_string(),
-            MaritalStatus::Widowed(_) => "purple".to_string(),
-            _ => "orange".to_string(),
-        }
-    }
-}
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct Address {
-    pub street: String,
-    pub city: String,
-    pub state: String,
-    pub country: String,
-    pub postal_code: String,
-}
-
-#[derive(Debug, Clone, Hash, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Person {
-    pub id: u32,
-    pub first_name: String,
-    pub last_name: String,
-    pub birthday: String,
-    pub address: Address,
-    pub gender: Gender,
-    pub marital_status: MaritalStatus,
-    pub mother_id: Option<u32>,
-    pub father_id: Option<u32>,
-    pub children_id: Vec<u32>,
-}
-pub fn get_extension(filename: &str) -> Option<&str> {
-    Path::new(filename).extension().and_then(OsStr::to_str)
-}
-
-fn ternary<T: Debug>(condition: bool, a: T, b: T) -> T {
-    if condition {
-        a
-    } else {
-        b
-    }
-}
-
-fn concat_id<T: Debug>(condition: bool, id_1: T, id_2: T) -> String {
-    if condition {
-        format!("{:?}_{:?}", id_1, id_2)
-    } else {
-        format!("{:?}_{:?}", id_2, id_1)
-    }
-}
-
-impl Gender {
-    pub fn get_color(&self) -> String {
-        match self {
-            Gender::Female => "red".to_string(),
-            Gender::Male => "blue".to_string(),
-        }
-    }
-    pub fn get_shape(&self) -> String {
-        match self {
-            Gender::Female => "red".to_string(),
-            Gender::Male => "blue".to_string(),
-        }
-    }
-}
-impl Person {
-    fn _marital_status(id_1: u32, id_2: u32, color: String, form: String) -> String {
-        format!(
-            "\nID_{0} [shape={1}, color={2}, label=\"\"];\nID_{3} -> ID_{0};\nID_{4} -> ID_{0};\n",
-            concat_id(id_1 > id_2, id_2, id_1),
-            form,
-            color,
-            id_1,
-            id_2,
-        )
-    }
-
-    pub fn to_string(&self) -> String {
-        format!(
-            "ID: {}|{{{}|{}|{} }}",
-            self.id, self.last_name, self.first_name, self.birthday
-        )
-    }
-
-    pub fn to_graphviz(&self) -> String {
-        let mut result: String = format!(
-            "ID_{} [shape=record, nojustify=true, color={}, label=\"ID_{}\\n{}\\n{}\\n{}|{{Status: {:?}|Mother: {:?}|Father: {:?}|Children: {:?}",
-            self.id,
-            self.gender.get_color(),
-            self.id,
-            self.last_name,
-            self.first_name,
-            self.birthday,
-            self.marital_status,
-            self.mother_id.unwrap_or_default(),
-            self.father_id.unwrap_or_default(),
-            self.children_id
-        );
-
-        result.push_str("}\"];");
-
-        result.push_str(&self.get_connection());
-        if self.is_child() {
-            let tmp_str = format!(
-                "\nID_{} -> ID_{};\n",
-                concat_id(
-                    self.mother_id.unwrap() > self.father_id.unwrap(),
-                    self.father_id.unwrap(),
-                    self.mother_id.unwrap()
-                ),
-                self.id
-            );
-            result.push_str(&tmp_str);
-        }
-        result
-    }
-
-    fn is_child(&self) -> bool {
-        self.mother_id.is_some() && self.father_id.is_some()
-    }
-
-    fn get_connection(&self) -> String {
-        match self.marital_status {
-            MaritalStatus::Married(to) => Person::_marital_status(
-                self.id,
-                to,
-                self.marital_status.get_color(),
-                self.marital_status.get_shape(),
-            ),
-            MaritalStatus::Divorced(to) => Person::_marital_status(
-                self.id,
-                to,
-                self.marital_status.get_color(),
-                self.marital_status.get_shape(),
-            ),
-            MaritalStatus::Widowed(to) => Person::_marital_status(
-                self.id,
-                to,
-                self.marital_status.get_color(),
-                self.marital_status.get_shape(),
-            ),
-            _ => "".to_string(),
-        }
-    }
-
-    pub fn to_json(&self) -> String {
-        format!(
-            "\n\"Person_{}\": {}\n",
-            self.id,
-            serde_json::to_string(self).unwrap()
-        )
-    }
-}
 #[derive(Debug, Eq, Hash, PartialEq)]
 pub struct TreeNode<T: Hash + Eq> {
     pub value: T,
     pub children: Vec<TreeNode<T>>,
 }
-
+#[derive(Debug, Default)]
 pub struct PersonManager {
-    counter: u32,
-    persons: HashMap<u32, Person>,
-    relationships: HashMap<u32, TreeNode<u32>>,
+    counter: u64,
+    persons: HashMap<u64, Person>,
+    relationships: HashMap<u64, TreeNode<u64>>,
     graph: Graph<&'static str, &'static str>,
 }
 
 impl PersonManager {
     pub fn new() -> Self {
-        PersonManager {
-            counter: 0,
-            persons: HashMap::new(),
-            relationships: HashMap::new(),
-            graph: Graph::new(),
-        }
+        // PersonManager {
+        //     counter: 0,
+        //     persons: HashMap::new(),
+        //     relationships: HashMap::new(),
+        //     graph: Graph::new(),
+        // }
+        Default::default()
     }
 
-    fn get_person(&self, id: u32) -> Option<&Person> {
+    fn get_person(&self, id: u64) -> Option<&Person> {
         self.persons.get(&id)
     }
-    pub fn get_persons(&self) -> &HashMap<u32, Person> {
+    pub fn get_persons(&self) -> &HashMap<u64, Person> {
         &self.persons
     }
     pub fn add_person(&mut self, person: Person) -> Result<(), String> {
@@ -289,7 +68,7 @@ impl PersonManager {
         Ok(())
     }
 
-    fn set_mother(&mut self, person_id: u32, mother_id: u32) -> Result<(), String> {
+    fn set_mother(&mut self, person_id: u64, mother_id: u64) -> Result<(), String> {
         if let Some(person) = self.persons.get_mut(&person_id) {
             person.mother_id = Some(mother_id);
             Ok(())
@@ -298,7 +77,7 @@ impl PersonManager {
         }
     }
 
-    fn set_father(&mut self, person_id: u32, father_id: u32) -> Result<(), String> {
+    fn set_father(&mut self, person_id: u64, father_id: u64) -> Result<(), String> {
         if let Some(person) = self.persons.get_mut(&person_id) {
             person.father_id = Some(father_id);
             Ok(())
@@ -307,7 +86,7 @@ impl PersonManager {
         }
     }
 
-    fn set_parent(&mut self, person_id: u32, mother_id: u32, father_id: u32) -> Result<(), String> {
+    fn set_parent(&mut self, person_id: u64, mother_id: u64, father_id: u64) -> Result<(), String> {
         if let Some(person) = self.persons.get_mut(&person_id) {
             person.mother_id = Some(mother_id);
             person.father_id = Some(father_id);
@@ -319,7 +98,7 @@ impl PersonManager {
 
     pub fn set_person_marital_status(
         &mut self,
-        person_id: u32,
+        person_id: u64,
         marital_status: MaritalStatus,
     ) -> Result<(), String> {
         if let Some(person) = self.persons.get_mut(&person_id) {
@@ -330,13 +109,13 @@ impl PersonManager {
         }
     }
 
-    pub fn get_person_marital_status(&self, person_id: u32) -> Option<&MaritalStatus> {
+    pub fn get_person_marital_status(&self, person_id: u64) -> Option<&MaritalStatus> {
         self.persons
             .get(&person_id)
             .map(|person| &person.marital_status)
     }
 
-    pub fn marry(&mut self, p1_id: u32, p2_id: u32) -> Result<(), String> {
+    pub fn marry(&mut self, p1_id: u64, p2_id: u64) -> Result<(), String> {
         if let Some(person1) = self.persons.get_mut(&p1_id) {
             person1.marital_status = MaritalStatus::Married(p2_id);
         } else {
@@ -356,13 +135,18 @@ impl PersonManager {
         Ok(())
     }
 
-    pub fn get_person_mut(&mut self, person_id: &u32) -> Option<&mut Person> {
+    pub fn get_person_mut(&mut self, person_id: &u64) -> Option<&mut Person> {
         self.persons.get_mut(person_id)
     }
 
+    pub fn set_address(&mut self, person_id: u64, new_address: Address) {
+        if let Some(person) = self.persons.get_mut(&person_id) {
+            person.address = new_address;
+        }
+    }
     pub fn build_family_tree(&self) -> Option<TreeNode<Rc<Person>>> {
         let mut found_tree: bool = false;
-        let mut visited: HashSet<u32> = HashSet::new();
+        let mut visited: HashSet<u64> = HashSet::new();
         let mut root_nodes: HashSet<TreeNode<Rc<Person>>> = HashSet::new();
 
         for root_person in self.persons.values() {
@@ -418,8 +202,8 @@ impl PersonManager {
 
     pub fn build_tree_recursive(
         &self,
-        person_id: u32,
-        visited: &mut HashSet<u32>,
+        person_id: u64,
+        visited: &mut HashSet<u64>,
     ) -> Vec<TreeNode<Rc<Person>>> {
         let mut children_nodes: HashSet<TreeNode<Rc<Person>>> = HashSet::new();
 
@@ -442,39 +226,15 @@ impl PersonManager {
 
         children_nodes.into_iter().collect()
     }
-    /// Generates a Graphviz representation of the tree and writes it to a file.
-    ///
-    /// This function generates a Graphviz representation of the tree using the DOT language and writes it to a file.
-    /// The file format is determined based on the provided `graphviz_path` or defaults to "output/tree.dot" if not specified.
-    /// The function creates the necessary output directory if it doesn't exist.
-    ///
-    /// # Arguments
-    ///
-    /// * `graphviz_path` - Optional path for the Graphviz output file. If not provided, the default path "output/tree.dot" is used.
-    ///
-    /// # Errors
-    ///
-    /// This function returns an error if:
-    /// * The provided `graphviz_path` doesn't have an extension.
-    /// * The Graphviz output file cannot be created or written to.
-    /// * The "dot" command execution fails when converting the DOT file to the desired format.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use tree::PersonManager;
-    ///
-    /// let tree = PersonManager::new();
-    /// tree.to_graphviz(Some("output/tree.png")).unwrap();
-    /// ```
-    pub fn to_graphviz(&self, graphviz_path: Option<PathBuf>) -> Result<(), String> {
+
+    pub fn to_graphviz(&self, file_in: Option<PathBuf>) -> Result<(), String> {
         fs::create_dir_all("output").map_err(|e| e.to_string())?;
 
         let default_file = Path::new("output").join("tree.dot");
-        let filename = graphviz_path.unwrap_or(default_file.clone());
+        let filename = file_in.unwrap_or(default_file.clone());
         let extension: Extension = Extension::from_path(&filename)?;
 
-        let mut writer = fs::File::create(&filename).map_err(|e| e.to_string())?;
+        let mut writer = fs::File::create(&default_file).map_err(|e| e.to_string())?;
 
         write!(&mut writer, "digraph Alf {{\n\n").map_err(|e| e.to_string())?;
 
@@ -511,37 +271,8 @@ impl PersonManager {
 
         Ok(())
     }
-    /// Generates a JSON representation of the tree and writes it to a file.
-    ///
-    /// This function generates a JSON representation of the tree and writes it to a file.
-    /// The output file format must be a JSON file. The file format and path are determined based on the provided `output_file`
-    /// or defaults to "output/tree.json" if not specified.
-    /// The function creates the necessary output directory if it doesn't exist.
-    ///
-    /// # Arguments
-    ///
-    /// * `output_file` - Optional path for the JSON output file. If not provided, the default path "output/tree.json" is used.
-    ///
-    /// # Errors
-    ///
-    /// This function returns an error if:
-    /// * The provided `output_file` doesn't have a JSON extension.
-    /// * The JSON output file cannot be created or written to.
-    ///
-    /// # Returns
-    ///
-    /// This function returns the generated JSON string on success.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use my_tree::Tree;
-    ///
-    /// let tree = Tree::new();
-    /// let json_str = tree.to_json(Some("output/tree.json")).unwrap();
-    /// println!("Generated JSON: {}", json_str);
-    /// ```
-    pub fn to_json(&self, output_file: Option<PathBuf>) -> Result<String, String> {
+
+    pub fn to_json(&self, output_file: Option<PathBuf>) -> Result<(), String> {
         let default_file = Path::new("output").join("tree.json");
         let filename = output_file.unwrap_or(default_file.clone());
         let extension = Extension::from_path(&filename)?;
@@ -565,16 +296,19 @@ impl PersonManager {
 
         write!(writer, "{}", json_str).map_err(|e| e.to_string())?;
 
-        Ok(json_str)
+        Ok(())
     }
 
-    pub fn to_pdf(&self, output_file: Option<PathBuf>) -> Result<String, String> {
-        todo!()
+    pub fn to_pdf(&self, output_file: Option<PathBuf>) -> Result<(), String> {
+        Ok(self.to_graphviz(output_file)?)
     }
-    pub fn to_svg(&self, output_file: Option<PathBuf>) -> Result<String, String> {
-        todo!()
+    pub fn to_svg(&self, output_file: Option<PathBuf>) -> Result<(), String> {
+        Ok(self.to_graphviz(output_file)?)
     }
-    pub fn to_png(&self, output_file: Option<PathBuf>) -> Result<String, String> {
-        todo!()
+    pub fn to_png(&self, output_file: Option<PathBuf>) -> Result<(), String> {
+        Ok(self.to_graphviz(output_file)?)
+    }
+    pub fn to_jpg(&self, output_file: Option<PathBuf>) -> Result<(), String> {
+        Ok(self.to_graphviz(output_file)?)
     }
 }

@@ -1,138 +1,216 @@
 mod class;
+mod class_def;
+mod class_impl;
 mod utils;
-use class::{Address, Gender, MaritalStatus, Person, PersonManager, TreeNode};
+use class::PersonManager;
 use log::{error, info, warn};
-use petgraph::dot::{Config, Dot};
-use petgraph::{graph::NodeIndex, Graph};
 use std::collections::{HashMap, HashSet};
-use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::rc::Rc;
-use utils::set_logger;
+use utils::*;
+use class_def::*;
 
-struct GraphManager {
-    graph: Graph<&'static str, &'static str>,
-}
+use std::path::Path;
 
-impl GraphManager {
-    fn new() -> Self {
-        GraphManager {
-            graph: Graph::new(),
-        }
-    }
-    fn build_graph(&mut self, tree: &TreeNode<Rc<Person>>) {
-        let node_label: &'static str = Box::leak(tree.value.to_string().into_boxed_str());
-        let parent_node = self.graph.add_node(node_label);
-        self.add_node(tree, parent_node);
-    }
-    fn add_node(&mut self, tree: &TreeNode<Rc<Person>>, parent_node: NodeIndex) {
-        for child in &tree.children {
-            let child_label: &'static str = Box::leak(child.value.to_string().into_boxed_str());
-            let child_node = self.graph.add_node(child_label);
-            self.graph.add_edge(parent_node, child_node, "child");
-            self.add_node(child, child_node);
-        }
-    }
-}
 
-fn main() -> Result<(), String> {
-    set_logger(None);
+fn get_dummy_manager() -> Result<PersonManager, String> {
+    let mut manager = PersonManager::new();
 
-    // Create a PersonManager
-    let mut person_manager: PersonManager = PersonManager::new();
-
-    // Create dummy persons
-    let person1: Person = Person {
+    // Generation 1
+    let person1 = Person {
         id: 1,
-        gender: Gender::Male,
         first_name: "John".to_string(),
         last_name: "Doe".to_string(),
         birthday: "1990-01-01".to_string(),
         address: Address {
             street: "123 Main St".to_string(),
-            city: "City1".to_string(),
-            state: "State1".to_string(),
-            country: "Country1".to_string(),
-            postal_code: "12345".to_string(),
+            city: "New York".to_string(),
+            state: "NY".to_string(),
+            country: "USA".to_string(),
+            postal_code: "10001".to_string(),
         },
-        marital_status: MaritalStatus::Widowed(2),
+        gender: Gender::Male,
+        marital_status: MaritalStatus::Married(2),
         mother_id: None,
         father_id: None,
-        children_id: vec![3],
+        children_id: vec![3], // IDs of children in the next generation
     };
+    manager.add_person(person1)?;
 
-    let person2: Person = Person {
+    let person2 = Person {
         id: 2,
-        gender: Gender::Female,
         first_name: "Jane".to_string(),
         last_name: "Doe".to_string(),
-        birthday: "1992-01-01".to_string(),
+        birthday: "1992-03-05".to_string(),
         address: Address {
-            street: "456 Main St".to_string(),
-            city: "City1".to_string(),
-            state: "State1".to_string(),
-            country: "Country1".to_string(),
-            postal_code: "12345".to_string(),
+            street: "123 Main St".to_string(),
+            city: "New York".to_string(),
+            state: "NY".to_string(),
+            country: "USA".to_string(),
+            postal_code: "10001".to_string(),
         },
-        marital_status: MaritalStatus::Widowed(1),
+        gender: Gender::Female,
+        marital_status: MaritalStatus::Married(1),
         mother_id: None,
         father_id: None,
-        children_id: vec![3],
+        children_id: vec![3], // No children in the next generation
     };
+    manager.add_person(person2)?;
 
-    let person3: Person = Person {
+    let person3 = Person {
         id: 3,
-        gender: Gender::Male,
-        first_name: "Child".to_string(),
+        first_name: "David".to_string(),
         last_name: "Doe".to_string(),
-        birthday: "2010-01-01".to_string(),
+        birthday: "1995-07-10".to_string(),
         address: Address {
-            street: "789 Main St".to_string(),
-            city: "City1".to_string(),
-            state: "State1".to_string(),
-            country: "Country1".to_string(),
-            postal_code: "12345".to_string(),
+            street: "123 Main St".to_string(),
+            city: "New York".to_string(),
+            state: "NY".to_string(),
+            country: "USA".to_string(),
+            postal_code: "10001".to_string(),
         },
+        gender: Gender::Male,
+        marital_status: MaritalStatus::Divorced(4),
+        mother_id: Some(2),
+        father_id: Some(1),
+        children_id: vec![6, 5], // IDs of children in the next generation
+    };
+    manager.add_person(person3)?;
+
+    // Generation 2
+    let person4 = Person {
+        id: 4,
+        first_name: "Emily".to_string(),
+        last_name: "Smith".to_string(),
+        birthday: "1998-09-15".to_string(),
+        address: Address {
+            street: "456 Elm St".to_string(),
+            city: "New York".to_string(),
+            state: "NY".to_string(),
+            country: "USA".to_string(),
+            postal_code: "10002".to_string(),
+        },
+        gender: Gender::Female,
+        marital_status: MaritalStatus::Divorced(3), // ID of the spouse in the same generation
+        mother_id: None,
+        father_id: None,
+        children_id: vec![5, 6], // No children in the next generation
+    };
+    manager.add_person(person4)?;
+
+    let person5 = Person {
+        id: 5,
+        first_name: "Michael".to_string(),
+        last_name: "Smith".to_string(),
+        birthday: "2000-12-20".to_string(),
+        address: Address {
+            street: "456 Elm St".to_string(),
+            city: "New York".to_string(),
+            state: "NY".to_string(),
+            country: "USA".to_string(),
+            postal_code: "10002".to_string(),
+        },
+        gender: Gender::Male,
+        marital_status: MaritalStatus::Single,
+        mother_id: Some(4),
+        father_id: Some(3),
+        children_id: vec![], // IDs of children in the next generation
+    };
+    manager.add_person(person5)?;
+
+    // Generation 3
+    let person6 = Person {
+        id: 6,
+        first_name: "Sarah".to_string(),
+        last_name: "Johnson".to_string(),
+        birthday: "1997-04-25".to_string(),
+        address: Address {
+            street: "789 Oak St".to_string(),
+            city: "New York".to_string(),
+            state: "NY".to_string(),
+            country: "USA".to_string(),
+            postal_code: "10003".to_string(),
+        },
+        gender: Gender::Female,
+        marital_status: MaritalStatus::Single, // ID of the spouse in the same generation
+        mother_id: Some(4),
+        father_id: Some(3),
+        children_id: vec![], // No children in the next generation
+    };
+    manager.add_person(person6)?;
+
+    let person7 = Person {
+        id: 7,
+        first_name: "Olivia".to_string(),
+        last_name: "Smith".to_string(),
+        birthday: "2003-06-30".to_string(),
+        address: Address {
+            street: "456 Elm St".to_string(),
+            city: "New York".to_string(),
+            state: "NY".to_string(),
+            country: "USA".to_string(),
+            postal_code: "10002".to_string(),
+        },
+        gender: Gender::Female,
+        marital_status: MaritalStatus::Single,
+        mother_id: Some(4),
+        father_id: Some(3),
+        children_id: vec![], // No children in the next generation
+    };
+    manager.add_person(person7)?;
+
+    let person8 = Person {
+        id: 8,
+        first_name: "William".to_string(),
+        last_name: "Smith".to_string(),
+        birthday: "2005-09-10".to_string(),
+        address: Address {
+            street: "456 Elm St".to_string(),
+            city: "New York".to_string(),
+            state: "NY".to_string(),
+            country: "USA".to_string(),
+            postal_code: "10002".to_string(),
+        },
+        gender: Gender::Male,
         marital_status: MaritalStatus::Single,
         mother_id: Some(2),
         father_id: Some(1),
-        children_id: Vec::new(),
+        children_id: vec![], // No children in the next generation
     };
+    manager.add_person(person8)?;
 
-    // Add persons to the PersonManager
-    person_manager.add_person(person1)?;
-    person_manager.add_person(person2)?;
-    person_manager.add_person(person3)?;
+    Ok(manager)
+}
+fn main() -> Result<(), String> {
+    utils::set_logger(None);
 
-    let mut graphviz_path: PathBuf = PathBuf::new();
-    graphviz_path.push("output/tree.svg");
-    if let Err(message) = person_manager.to_graphviz(Some(graphviz_path)) {
-        error!("{message}");
-    }
-    let _json = person_manager.to_json(None)?;
-    let json: HashMap<String, Person> =
-        serde_json::from_str(&fs::read_to_string("output/tree.json").unwrap())
-            .expect("JSON was not well-formatted");
-    // Build the family tree
-    for p in json.values() {
-        // warn!("{:#?}", p);
-    }
-    let mut graph_manager: GraphManager = GraphManager::new();
-    if let Some(tree) = person_manager.build_family_tree() {
-        graph_manager.build_graph(&tree);
-        let dot = format!(
-            "{:?}",
-            Dot::with_config(&graph_manager.graph, &[Config::EdgeNoLabel])
-        );
-        info!("{:#?}", tree);
-    } else {
-        println!("No family tree found.");
-    }
-    let test = "La vie est belle";
-    warn!("{test}");
-    let test = ["/C", "echo hello"];
-    info!("{test:#?}");
+    let manager = get_dummy_manager()?;
+    // Generate family tree
+    manager.build_family_tree();
+
+    // Output tree to Graphviz DOT file
+    let mut json_file = PathBuf::new();
+    let mut pdf_file = PathBuf::new();
+    let mut png_file = PathBuf::new();
+    let mut svg_file = PathBuf::new();
+    let mut jpg_file = PathBuf::new();
+
+    json_file.push("output/tree.json");
+    png_file.push("output/tree.png");
+    pdf_file.push("output/tree.pdf");
+    svg_file.push("output/tree.svg");
+    jpg_file.push("output/tree.jpg");
+    let svg_result = manager.to_svg(Some(svg_file.clone()));
+    let json_result = manager.to_json(Some(json_file));
+    let png_result = manager.to_png(Some(png_file));
+    let pdf_result = manager.to_pdf(Some(pdf_file));
+    let jpg_result = manager.to_jpg(Some(jpg_file));
+    info!("{:?}", svg_result);
+    info!("{:?}", json_result);
+    info!("{:?}", png_result);
+    info!("{:?}", pdf_result);
+    info!("{:?}", jpg_result);
+    println!("Family tree generated successfully!");
 
     Ok(())
 }
