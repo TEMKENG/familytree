@@ -2,11 +2,11 @@ use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::path::Path;
 
-pub fn concat_id<T: Debug>(condition: bool, id_1: T, id_2: T) -> String {
+pub fn concat_id<T: Debug>(condition: bool, a: T, b: T) -> String {
     if condition {
-        format!("{id_1:?}_{id_2:?}")
+        format!("{a:?}_{b:?}")
     } else {
-        format!("{id_2:?}_{id_1:?}")
+        format!("{b:?}_{a:?}")
     }
 }
 
@@ -23,12 +23,14 @@ pub fn set_logger(log_file: Option<&str>) {
     // Initialize the logger
     fern::Dispatch::new()
         .format(move |buf, message, record| {
+            let f = record.file().unwrap_or("unknown");
+            let file = Path::new(f).file_name().and_then(OsStr::to_str).unwrap_or("unknown");
             buf.finish(format_args!(
                 "[{file}::{line}::{date}::{level}::{message}",
                 date = chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
                 level = record.level(),
                 message = message,
-                file = record.file().unwrap_or("unknown"),
+                // file = record.file().unwrap_or("unknown"),
                 line = record.line().unwrap_or(0),
             ));
         })
