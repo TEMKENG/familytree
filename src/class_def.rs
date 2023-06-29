@@ -1,6 +1,7 @@
 use crate::utils::*;
 use petgraph::Graph;
-use serde::{Deserialize, Serialize, Deserializer, Serializer};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
@@ -11,15 +12,6 @@ use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
-pub struct Address {
-    street: String,
-    city: String,
-    state: String,
-    country: String,
-    postal_code: String,
-}
-
 #[derive(Debug, Clone)]
 pub enum Delimiter {
     Colon,
@@ -27,70 +19,6 @@ pub enum Delimiter {
     Semicolon,
     Tab,
     VerticalBar,
-}
-
-#[derive(Debug, PartialEq)]
-pub enum Extension {
-    DOT,
-    PNG,
-    JPG,
-    PDF,
-    SVG,
-    JSON,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Gender {
-    Male,
-    Female,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub enum MaritalStatus {
-    Single,
-    Married(u64),
-    Divorced(u64),
-    Widowed(u64),
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Person<'a> {
-    id: u64,
-    firstname: &'a str,
-    lastname: &'a str,
-    birthday: &'a str,
-    address: Address,
-    gender: Gender,
-    marital_status: MaritalStatus,
-    #[serde(serialize_with = "serialize_children", deserialize_with = "deserialize_children")]
-    children: HashMap<u64, Rc<RefCell<Person<'a>>>>,
-}
-
-fn serialize_children<S>(children: &HashMap<u64, Rc<RefCell<Person>>>, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let serializable_children: HashMap<u64, Person> = children.iter()
-        .map(|(&id, child)| (id, child.borrow().clone()))
-        .collect();
-    serializable_children.serialize(serializer)
-}
-
-fn deserialize_children<'de, D>(deserializer: D) -> Result<HashMap<u64, Rc<RefCell<Person<'de>>>>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let deserialized_children: HashMap<u64, Person> = Deserialize::deserialize(deserializer)?;
-    let children = deserialized_children.into_iter()
-        .map(|(id, child)| (id, Rc::new(RefCell::new(child))))
-        .collect();
-    Ok(children)
-}
-
-impl Address {
-    pub fn new() -> Address {
-        Default::default()
-    }
 }
 
 impl Delimiter {
@@ -132,6 +60,165 @@ pub fn determine_delimiter(file_path: &str) -> Option<u8> {
         None
     }
 }
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct Address<'a> {
+    street: &'a str,
+    city: &'a str,
+    state: &'a str,
+    country: &'a str,
+    postal_code: &'a str,
+}
+impl<'a> Address<'a> {
+    pub fn new() -> Address<'a> {
+        Default::default()
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Extension {
+    DOT,
+    PNG,
+    JPG,
+    PDF,
+    SVG,
+    JSON,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Gender {
+    Male,
+    Female,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MaritalStatus {
+    Single,
+    Married(u64),
+    Divorced(u64),
+    Widowed(u64),
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct PersonInfo<'a> {
+    id: u64,
+    firstname: &'a str,
+    lastname: &'a str,
+    birthday: &'a str,
+    gender: Gender,
+}
+
+impl<'a> PersonInfo<'a> {
+    fn new(
+        firstname: &'a str,
+        lastname: &'a str,
+        birthday: &'a str,
+        gender: Gender,
+    ) -> PersonInfo<'a> {
+        PersonInfo {
+            id: PersonInfo::generate_id(firstname, lastname, birthday),
+            firstname,
+            lastname,
+            birthday,
+            gender,
+        }
+    }
+
+    fn generate_id(firstname: &str, lastname: &str, birthday: &str) -> u64 {
+        let mut hasher = DefaultHasher::new();
+        let input = format!("{}{}{}", firstname, lastname, birthday);
+        input.hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Person<'a> {
+    info: PersonInfo<'a>,
+    address: Address<'a>,
+    marital_status: MaritalStatus,
+    #[serde(
+        serialize_with = "serialize_option_rc_person_info",
+        deserialize_with = "deserialize_option_rc_person_info"
+    )]
+    mother: Option<Rc<PersonInfo<'a>>>,
+    #[serde(
+        serialize_with = "serialize_option_rc_person_info",
+        deserialize_with = "deserialize_option_rc_person_info"
+    )]
+    father: Option<Rc<PersonInfo<'a>>>,
+    #[serde(
+        serialize_with = "serialize_children",
+        deserialize_with = "deserialize_children"
+    )]
+    children: HashMap<u64, Rc<PersonInfo<'a>>>,
+}
+
+fn serialize_option_rc_person_info<S>(
+    value: &Option<Rc<PersonInfo>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    match value {
+        Some(person) => person.serialize(serializer),
+        None => serializer.serialize_none(),
+    }
+}
+
+fn deserialize_option_rc_person_info<'de, D>(
+    deserializer: D,
+) -> Result<Option<Rc<PersonInfo<'de>>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let deserialized: Option<PersonInfo> = Option::deserialize(deserializer)?;
+    match deserialized {
+        Some(person_info) => Ok(Some(Rc::new(person_info))),
+        None => Ok(None),
+    }
+}
+
+fn serialize_children<S>(
+    children: &HashMap<u64, Rc<PersonInfo>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: serde::Serializer,
+{
+    let serializable_children: HashMap<u64, PersonInfo> = children
+        .iter()
+        .map(|(&id, child)| (id, *child.borrow()))
+        .collect();
+    serializable_children.serialize(serializer)
+}
+
+fn deserialize_children<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<u64, Rc<PersonInfo<'de>>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let deserialized_children: HashMap<u64, PersonInfo> = Deserialize::deserialize(deserializer)?;
+    let children = deserialized_children
+        .into_iter()
+        .map(|(id, child)| (id, Rc::new(child)))
+        .collect();
+    Ok(children)
+}
+
+// #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+// pub struct Person<'a> {
+//     id: u64,
+//     firstname: &'a str,
+//     lastname: &'a str,
+//     birthday: &'a str,
+//     address: Address,
+//     gender: Gender,
+//     marital_status: MaritalStatus,
+//     #[serde(serialize_with = "serialize_children", deserialize_with = "deserialize_children")]
+//     children: HashMap<u64, Rc<RefCell<Person<'a>>>>,
+// }
 
 impl Gender {
     pub fn get_color(&self) -> String {
@@ -202,104 +289,128 @@ impl MaritalStatus {
 }
 
 impl<'a> Person<'a> {
-    pub fn new(lastname: &'a str, firstname: &'a str, birthday: &'a str) -> Rc<RefCell<Person<'a>>> {
-        Rc::new(RefCell::new(Person {
-            id: Person::generate_id(firstname, lastname, birthday),
-            firstname: firstname,
-            lastname: lastname,
-            birthday: birthday,
-            address: Address::new(),
-            gender: Gender::Male,
-            marital_status: MaritalStatus::Single,
-            children: HashMap::new(),
-        }))
-    }
-    pub fn new_with_address(
+    pub fn default(
         lastname: &'a str,
         firstname: &'a str,
         birthday: &'a str,
-        address: Address,
+        gender: Gender,
     ) -> Rc<RefCell<Person<'a>>> {
         Rc::new(RefCell::new(Person {
-            id: Person::generate_id(firstname, lastname, birthday),
-            firstname: firstname,
-            lastname: lastname,
-            birthday: birthday,
-            address: address,
-            gender: Gender::Male,
+            info: PersonInfo::new(firstname, lastname, birthday, gender),
+            address: Address::new(),
             marital_status: MaritalStatus::Single,
+            mother: None,
+            father: None,
             children: HashMap::new(),
         }))
     }
 
-    fn add_child(parent: &Rc<RefCell<Person>>, child: Rc<RefCell<Person>>) {
-        let id;
-        {
-            id = (*child.clone().borrow_mut()).id;
-        }
-        parent
-            .borrow_mut()
-            .children
-            .entry(id)
-            .or_insert_with(|| child);
+    pub fn new(
+        lastname: &'a str,
+        firstname: &'a str,
+        birthday: &'a str,
+        gender: Gender,
+        address: Option<Address>,
+        marital_status: Option<MaritalStatus>,
+        mother: Option<Rc<PersonInfo<'_>>>,
+        father: Option<Rc<PersonInfo<'_>>>,
+        children: Option<HashMap<u64, Rc<PersonInfo<'_>>>>,
+    ) -> Rc<RefCell<Person<'a>>> {
+        let default_children: HashMap<u64, Rc<PersonInfo<'_>>> = HashMap::new();
+        Rc::new(RefCell::new(Person {
+            info: PersonInfo::new(firstname, lastname, birthday, gender),
+            address: address.unwrap_or(Address::new()),
+            marital_status: marital_status.unwrap_or(MaritalStatus::Single),
+            mother,
+            father,
+            children: children.unwrap_or(default_children),
+        }))
+    }
+    pub fn set_address(&mut self, address: Address) {
+        self.address = address;
+    }
+
+    pub fn set_marital_status(&mut self, marital_status: MaritalStatus) {
+        self.marital_status = marital_status;
+    }
+
+    fn set_mother(&mut self, mother_info: &Rc<PersonInfo>) {
+        self.mother = Some(mother_info.clone());
+    }
+
+    fn set_father(&mut self, father_info: &Rc<PersonInfo>) {
+        self.father = Some(father_info.clone());
+    }
+
+    fn add_child(&mut self, child: &Rc<PersonInfo>) {
+        self.children
+            .entry(child.id)
+            .or_insert_with(|| child.clone());
     }
 
     fn __marital_status__(&self, connect_to: u64) -> String {
         format!(
             "\nID_{0} [shape={1}, color={2}, label=\"\"];\nID_{3} -> ID_{0};\nID_{4} -> ID_{0};\n",
-            concat_id(self.id > connect_to, connect_to, self.id),
+            concat_id(self.info.id > connect_to, connect_to, self.info.id),
             self.marital_status.get_shape(),
             self.marital_status.get_color(),
-            self.id,
+            self.info.id,
             connect_to,
         )
     }
 
-
-    pub fn to_string(person: &Rc<RefCell<Person>>) -> String {
-        let p = person.borrow();
+    pub fn to_string(&self) -> String {
         format!(
             "ID: {}|{{{}|{}|{} }}",
-            p.id, p.lastname, p.firstname, p.birthday
+            self.info.id, self.info.lastname, self.info.firstname, self.info.birthday
         )
     }
 
-    fn get_couple_id(&self)-> Option<String>{
+    fn get_couple_id(&self) -> Option<String> {
         match self.marital_status {
-            MaritalStatus::Married(to) =>   Some(format!("ID_{}", concat_id(self.id > to, self.id, to))),
-            MaritalStatus::Divorced(to) =>  Some(format!("ID_{}", concat_id(self.id > to, self.id, to))),
-            MaritalStatus::Widowed(to) =>   Some(format!("ID_{}", concat_id(self.id > to, self.id, to))),
+            MaritalStatus::Married(to) => Some(format!(
+                "ID_{}",
+                concat_id(self.info.id > to, self.info.id, to)
+            )),
+            MaritalStatus::Divorced(to) => Some(format!(
+                "ID_{}",
+                concat_id(self.info.id > to, self.info.id, to)
+            )),
+            MaritalStatus::Widowed(to) => Some(format!(
+                "ID_{}",
+                concat_id(self.info.id > to, self.info.id, to)
+            )),
             _ => None,
         }
     }
-    pub fn to_graphviz(person: &Rc<RefCell<Person>>) -> String {
-        let p = (**person).borrow();
-        let mut children_keys: Vec<u64> = p.children.clone().into_keys().collect();
-
+    pub fn to_graphviz(&self) -> String {
+        let mut children_keys: Vec<u64> = self.children.clone().into_keys().collect();
 
         let mut result: String = format!(
             "ID_{} [shape=record, nojustify=true, color={}, label=\"ID_{}\\n{}\\n{}\\n{}|{{Status: {:?}|Children: {:?}",
-            p.id,
-            p.gender.get_color(),
-            p.id,
-            p.lastname,
-            p.firstname,
-            p.birthday,
-            p.marital_status,
+            self.info.id,
+            self.info.gender.get_color(),
+            self.info.id,
+            self.info.lastname,
+            self.info.firstname,
+            self.info.birthday,
+            self.marital_status,
             children_keys
         );
 
         result.push_str("}\"];");
 
-        if let Some(couple_id) = p.get_couple_id(){
+        if let Some(couple_id) = self.get_couple_id() {
             result.push_str(
-                &children_keys.into_iter()
-                .map(|key| format!("{couple_id} -> {key}\n"))
-                .collect::<Vec<String>>().join("")
+                &children_keys
+                    .into_iter()
+                    .map(|key| format!("{couple_id} -> {key}\n"))
+                    .collect::<Vec<String>>()
+                    .join(""),
             );
         }
 
-        result.push_str(&p.get_connection());
+        result.push_str(&self.get_connection());
         result
     }
 
@@ -320,27 +431,9 @@ impl<'a> Person<'a> {
     pub fn to_json(&self) -> String {
         format!(
             "\n\"Person_{}\": {}\n",
-            self.id,
+            self.info.id,
             serde_json::to_string(self).unwrap()
         )
-    }
-    /// Generate a person ID basis of `lastname`, `firstname` and the `birthday`
-    fn generate_id(firstname: &str, lastname: &str, birthday: &str) -> u64 {
-        let mut hasher = DefaultHasher::new();
-        let input = format!("{}{}{}", firstname, lastname, birthday);
-        input.hash(&mut hasher);
-        hasher.finish()
-    }
-    pub fn set_address(person: &Rc<RefCell<Person>>, address: Address) {
-        person.borrow_mut().address = address;
-    }
-    fn set_mother(person: &Rc<RefCell<Person>>, mother_id: u64) {
-        // person.borrow_mut().mother = Some(mother_id);
-        todo!()
-    }
-    fn set_father(person: &Rc<RefCell<Person>>, father_id: u64) {
-        // person.borrow_mut().father = Some(father_id);
-        todo!()
     }
 }
 
@@ -492,7 +585,8 @@ impl<'a> PersonManager<'a> {
         // }
         todo!()
     }
-    pub fn build_family_tree(&self) -> Option<TreeNode<Rc<Person>>> {
+    // pub fn build_family_tree(&self) -> Option<TreeNode<Rc<Person>>> {
+    pub fn build_family_tree(&self) {
         /*let mut found_tree: bool = false;
         let mut visited: HashSet<u64> = HashSet::new();
         let mut root_nodes: HashSet<TreeNode<Rc<Person>>> = HashSet::new();
@@ -553,7 +647,8 @@ impl<'a> PersonManager<'a> {
         &self,
         person_id: u64,
         visited: &mut HashSet<u64>,
-    ) -> Vec<TreeNode<Rc<Person>>> {
+        // ) -> Vec<TreeNode<Rc<Person>>> {
+    ) {
         /*let mut children_nodes: HashSet<TreeNode<Rc<Person>>> = HashSet::new();
 
         if let Some(person) = self.persons.get(&person_id) {
