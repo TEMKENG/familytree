@@ -47,63 +47,62 @@ fn get_dummy_manager(filename: Option<&str>) -> Result<PersonManager, String> {
     let mut manager = PersonManager::new();
 
     // Generation 1
-    let person1 = Person::new("John",  "Doe", "1990-01-01");
+    let mut binding = Person::default("John", "Doe", "1990-01-01", Gender::Male);
+    let person1 = binding.set_address(get_random_address(&addresses));
 
+    let mut person = Person::new(
+        "Jane",
+        "Doe",
+        "1992-03-05",
+        Gender::Female,
+        None,
+        Some(MaritalStatus::Married(person1.get_id())),
+        None,
+        None,
+    );
+    let person2 = person.set_address(get_random_address(&addresses));
 
-    //  {
-    //     id: 1,
-        
-    //     address: get_random_address(&addresses),
-    //     gender: Gender::Male,
-    //     marital_status: MaritalStatus::Married(2),
-        
-        
-    //     children: vec![3], // IDs of children in the next generation
-    // };
-    // manager.add_person(person1)?;
+    person1.set_marital_status(MaritalStatus::Married(person2.get_id()));
+    manager.add_person(person1);
+    manager.add_person(person2);
 
-    // let person2 = Person {
-    //     id: 2,
-    //     firstname: "Jane",
-    //     lastname: "Doe",
-    //     birthday: "1992-03-05",
-    //     address: get_random_address(&addresses),
-    //     gender: Gender::Female,
-    //     marital_status: MaritalStatus::Married(1),
-    //     
-    //     
-    //     children: vec![3], // No children in the next generation
-    // };
-    // manager.add_person(person2)?;
+    let mut binding = Person::default("David", "Doe", "1995-07-10", Gender::Male);
+    let person3 = binding
+        .set_address(get_random_address(&addresses))
+        .set_mother(&person2)
+        .set_father(&person1);
+    manager.add_person(person3);
+    info!("{:#?}", person3.to_graphviz());
+    info!("{:#?}", person3.to_json());
 
-    // let person3 = Person {
-    //     id: 3,
-    //     firstname: "David",
-    //     lastname: "Doe",
-    //     birthday: "1995-07-10",
-    //     address: get_random_address(&addresses),
-    //     gender: Gender::Male,
-    //     marital_status: MaritalStatus::Divorced(4),
-    //     mother: Some(2),
-    //     father: Some(1),
-    //     children: vec![6, 5], // IDs of children in the next generation
-    // };
-    // manager.add_person(person3)?;
+    manager.update_marital_status(person1.get_id(), MaritalStatus::Single)?;
+    let status = manager.get_person_marital_status(person1.get_id()).unwrap();
+    manager.set_mother(person3.get_id(), person2.get_id())?;
+    manager.set_father(person3.get_id(), person1.get_id())?;
+    manager.set_parent(person3.get_id(), person2.get_id(), person1.get_id())?;
 
-    // // Generation 2
-    // let person4 = Person {
-    //     id: 4,
-    //     firstname: "Emily",
-    //     lastname: "Smith",
-    //     birthday: "1998-09-15",
-    //     address: get_random_address(&addresses),
-    //     gender: Gender::Female,
-    //     marital_status: MaritalStatus::Divorced(3), // ID of the spouse in the same generation
-    //     
-    //     
-    //     children: vec![5, 6], // No children in the next generation
-    // };
-    // manager.add_person(person4)?;
+    info!("{:?}", status);
+
+    // Generation 2
+    let mut binding = Person::new(
+        "Emily",
+        "Smith",
+        "1998-09-15",
+        Gender::Female,
+        None,
+        None,
+        None,
+        None,
+    );
+    let person4 = binding
+        .set_address(get_random_address(&addresses))
+        .set_marital_status(MaritalStatus::Single);
+
+    manager.add_person(person4);
+    manager.marry(person4.get_id(), person3.get_id())?;
+    manager.set_address(person4.get_id(), get_random_address(&addresses));
+    info!("{:#?}", person4);
+    info!("{:#?}", person3);
 
     // let person5 = Person {
     //     id: 5,
@@ -163,12 +162,11 @@ fn get_dummy_manager(filename: Option<&str>) -> Result<PersonManager, String> {
     // manager.add_person(person8)?;
 
     Ok(manager)
-
 }
 fn main() -> Result<(), String> {
     utils::set_logger(None);
-    let addresses = get_dummy_addresses(None, None);
-
+    let mut manager = get_dummy_manager(None)?;
+    warn!("{:#?}", manager);
     /*
         let manager = get_dummy_manager()?;
         // Generate family tree

@@ -26,7 +26,7 @@ pub fn set_logger(log_file: Option<&str>) {
             let f = record.file().unwrap_or("unknown");
             let file = Path::new(f).file_name().and_then(OsStr::to_str).unwrap_or("unknown");
             buf.finish(format_args!(
-                "[{file}::{line}::{date}::{level}::{message}",
+                "[{file}::{line}::{date}::{level}] {message}",
                 date = chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
                 level = record.level(),
                 message = message,
