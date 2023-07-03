@@ -83,7 +83,7 @@ fn get_dummy_manager(filename: Option<&str>) -> Result<PersonManager, String> {
 
     info!("{:?}", status);
 
-    // Generation 2
+    // 2 Family
     let mut binding = Person::new(
         "Emily",
         "Smith",
@@ -99,54 +99,47 @@ fn get_dummy_manager(filename: Option<&str>) -> Result<PersonManager, String> {
         .set_marital_status(MaritalStatus::Single);
 
     manager.add_person(person4);
-    manager.marry(person4.get_id(), person3.get_id())?;
     manager.set_address(person4.get_id(), get_random_address(&addresses));
     info!("{:#?}", person4);
     info!("{:#?}", person3);
 
-    // let person5 = Person {
-    //     id: 5,
-    //     firstname: "Michael",
-    //     lastname: "Smith",
-    //     birthday: "2000-12-20",
-    //     address: get_random_address(&addresses),
-    //     gender: Gender::Male,
-    //     marital_status: MaritalStatus::Single,
-    //     mother: Some(4),
-    //     father: Some(3),
-    //     children: vec![], // IDs of children in the next generation
-    // };
-    // manager.add_person(person5)?;
+    let mut person5 = Person::new(
+        "Michael",
+        "Smith",
+        "200-12-20",
+        Gender::Male,
+        Some(get_random_address(&addresses)),
+        Some(MaritalStatus::Single),
+        None,
+        None,
+    );
+    let mut binding = Person::new(
+        "Sarah",
+        "Johnson",
+        "1997-04-25",
+        Gender::Female,
+        Some(get_random_address(&addresses)),
+        Some(MaritalStatus::Single),
+        None,
+        None,
+    );
+    let mut person6 = binding.set_mother(person4).set_father(&person5);
+    manager.add_person(&person5);
+    manager.add_person(person6);
+    manager.marry(person4.get_id(), person5.get_id())?;
 
-    // // Generation 3
-    // let person6 = Person {
-    //     id: 6,
-    //     firstname: "Sarah",
-    //     lastname: "Johnson",
-    //     birthday: "1997-04-25",
-    //     address: get_random_address(&addresses),
-    //     gender: Gender::Female,
-    //     marital_status: MaritalStatus::Single, // ID of the spouse in the same generation
-    //     mother: Some(4),
-    //     father: Some(3),
-    //     children: vec![], // No children in the next generation
-    // };
-    // manager.add_person(person6)?;
-
-    // let person7 = Person {
-    //     id: 7,
-    //     firstname: "Olivia",
-    //     lastname: "Smith",
-    //     birthday: "2003-06-30",
-    //     address: get_random_address(&addresses),
-    //     gender: Gender::Female,
-    //     marital_status: MaritalStatus::Single,
-    //     mother: Some(4),
-    //     father: Some(3),
-    //     children: vec![], // No children in the next generation
-    // };
-    // manager.add_person(person7)?;
-
+    let mut binding = Person::new("Olivia","Smith", "2003-06-30", Gender::Female, Some(get_random_address(&addresses)), Some(MaritalStatus::Single), None, None);
+    let mut person7 = binding.set_mother(person3).set_father(person6);
+    manager.add_person(person7);
+    manager.marry(person3.get_id(), person6.get_id())?;
+    let mut visited:  HashSet<u64> = HashSet::new();
+    println!("get_root_parents\n{:#?}", person7.get_root_parents(&mut visited));
+    println!("get_marital_status\n{:#?}", person6.get_marital_status());
+    println!("visited\n{:#?}", visited);
+    println!("build_family_tree\n{:#?}", manager.build_family_tree());
+    
+    
+    // println!("{:#?}", manager.tree.get(&person1.get_id()));
     // let person8 = Person {
     //     id: 8,
     //     firstname: "William",

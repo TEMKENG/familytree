@@ -2,6 +2,21 @@ use std::ffi::OsStr;
 use std::fmt::Debug;
 use std::path::Path;
 
+pub fn remove_duplicated<T: Eq + Clone>(a: &Vec<T>, b: &Vec<T>) -> Vec<T> {
+    let mut result: Vec<T> = Vec::new();
+    for item in a {
+        if !result.contains(item) {
+            result.push(item.clone());
+        }
+    }
+    for item in b {
+        if !result.contains(item) {
+            result.push(item.clone());
+        }
+    }
+    result
+}
+
 pub fn concat_id<T: Debug>(condition: bool, a: T, b: T) -> String {
     if condition {
         format!("{a:?}_{b:?}")
@@ -24,7 +39,10 @@ pub fn set_logger(log_file: Option<&str>) {
     fern::Dispatch::new()
         .format(move |buf, message, record| {
             let f = record.file().unwrap_or("unknown");
-            let file = Path::new(f).file_name().and_then(OsStr::to_str).unwrap_or("unknown");
+            let file = Path::new(f)
+                .file_name()
+                .and_then(OsStr::to_str)
+                .unwrap_or("unknown");
             buf.finish(format_args!(
                 "[{file}::{line}::{date}::{level}] {message}",
                 date = chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),

@@ -67,6 +67,7 @@ pub struct Address {
     country: String,
     postal_code: String,
 }
+
 impl Address {
     pub fn new() -> Address {
         Default::default()
@@ -125,7 +126,7 @@ impl PersonInfo {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Person {
     info: PersonInfo,
     address: Address,
@@ -364,35 +365,88 @@ pub trait RcPerson {
     fn set_marital_status(&mut self, status: MaritalStatus) -> &mut Rc<RefCell<Person>>;
     fn set_mother(&mut self, mother: &Rc<RefCell<Person>>) -> &mut Rc<RefCell<Person>>;
     fn set_father(&mut self, father: &Rc<RefCell<Person>>) -> &mut Rc<RefCell<Person>>;
+    fn get_root_parents(&self, visited: &mut HashSet<u64>) -> Vec<Option<Rc<RefCell<Person>>>>;
     // Getter
     fn get_address(&self) -> Address;
     fn get_marital_status(&self) -> MaritalStatus;
     fn get_mother(&self) -> Option<Person>;
+    fn get_rc_mother(&self) -> Option<Rc<RefCell<Person>>>;
+    fn get_rc_father(&self) -> Option<Rc<RefCell<Person>>>;
     fn get_father(&self) -> Option<Person>;
     fn get_id(&self) -> u64;
     fn get_gender(&self) -> Gender;
 
     fn to_graphviz(&self) -> String;
     fn to_json(&self) -> String;
+
+    fn has_parent(&self) -> bool;
+    fn has_mother(&self) -> bool;
+    fn has_father(&self) -> bool;
+
+    fn mother_id(&self) -> Option<u64>;
+    fn father_id(&self) -> Option<u64>;
 }
 
 impl RcPerson for Rc<RefCell<Person>> {
+    fn get_root_parents(&self, visited: &mut HashSet<u64>) -> Vec<Option<Rc<RefCell<Person>>>> {
+        visited.insert(self.get_id());
+        if !self.has_parent() {
+            return vec![Some(self.clone())];
+        }
+        remove_duplicated(
+            &self.get_rc_mother().unwrap().get_root_parents(visited),
+            &self.get_rc_father().unwrap().get_root_parents(visited),
+        )
+    }
+
+    fn mother_id(&self) -> Option<u64> {
+        let person = self.borrow().clone();
+        if let Some(mother) = person.mother {
+            return Some(mother.get_id());
+        }
+        None
+    }
+
+    fn father_id(&self) -> Option<u64> {
+        let person = self.borrow().clone();
+        if let Some(father) = person.father {
+            return Some(father.get_id());
+        }
+        None
+    }
+
+    fn has_parent(&self) -> bool {
+        self.get_mother().is_some() && self.get_father().is_some()
+    }
+
+    fn has_mother(&self) -> bool {
+        self.get_mother().is_some()
+    }
+
+    fn has_father(&self) -> bool {
+        self.get_father().is_some()
+    }
+
     fn get_gender(&self) -> Gender {
         let person = self.borrow().clone();
         person.info.gender
     }
+
     fn to_graphviz(&self) -> String {
         let person = self.borrow().clone();
         person.to_json()
     }
+
     fn to_json(&self) -> String {
         let person = self.borrow().clone();
         person.to_json()
     }
+
     fn set_mother(&mut self, mother: &Rc<RefCell<Person>>) -> &mut Rc<RefCell<Person>> {
         self.borrow_mut().mother = Some(mother.clone());
         self
     }
+
     fn get_mother(&self) -> Option<Person> {
         let person = self.borrow().clone();
         if let Some(mother) = person.mother.clone() {
@@ -400,10 +454,17 @@ impl RcPerson for Rc<RefCell<Person>> {
         }
         None
     }
+
+    fn get_rc_mother(&self) -> Option<Rc<RefCell<Person>>> {
+        let person = self.borrow().clone();
+        person.mother
+    }
+
     fn set_father(&mut self, father: &Rc<RefCell<Person>>) -> &mut Rc<RefCell<Person>> {
         self.borrow_mut().father = Some(father.clone());
         self
     }
+
     fn get_father(&self) -> Option<Person> {
         let person = self.borrow().clone();
         if let Some(father) = person.father.clone() {
@@ -411,37 +472,61 @@ impl RcPerson for Rc<RefCell<Person>> {
         }
         None
     }
+
+    fn get_rc_father(&self) -> Option<Rc<RefCell<Person>>> {
+        let person = self.borrow().clone();
+        person.father
+    }
+
     fn set_address(&mut self, addr: Address) -> &mut Rc<RefCell<Person>> {
         self.borrow_mut().address = addr;
         self
     }
+
     fn get_address(&self) -> Address {
         let person = self.borrow().clone();
         person.address
     }
+
     fn set_marital_status(&mut self, status: MaritalStatus) -> &mut Rc<RefCell<Person>> {
         (**self).borrow_mut().marital_status = status;
         self
     }
+
     fn get_marital_status(&self) -> MaritalStatus {
         let person = self.borrow().clone();
         person.marital_status
     }
+
     fn get_id(&self) -> u64 {
         let person = self.borrow().clone();
         person.info.id
     }
 }
-#[derive(Debug, Eq, PartialEq)]
-pub struct TreeNode<T: Eq> {
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub struct TreeNode<T: Eq + Clone> {
     pub value: T,
     pub children: Vec<TreeNode<T>>,
+}
+
+impl<T: Eq + Clone> TreeNode<T> {
+    pub fn new(value: T) -> TreeNode<T> {
+        TreeNode {
+            value: value,
+            children: Vec::new(),
+        }
+    }
+    pub fn add_child(&mut self, child: TreeNode<T>) {
+        if !self.children.contains(&child) {
+            self.children.push(child);
+        }
+    }
 }
 #[derive(Debug, Default)]
 pub struct PersonManager {
     counter: u64,
     persons: HashMap<u64, Rc<RefCell<Person>>>,
-    relationships: HashMap<u64, TreeNode<u64>>,
+    pub tree: HashMap<u64, TreeNode<Rc<RefCell<Person>>>>,
     graph: Graph<&'static str, &'static str>,
 }
 
@@ -467,9 +552,25 @@ impl PersonManager {
         let k = (*p).borrow().info.id;
         self.persons.entry(k).or_insert(p)
     }
+
     pub fn add_person(&mut self, person: &Rc<RefCell<Person>>) {
-        let k = (*person).borrow().info.id;
-        self.persons.entry(k).or_insert(person.clone());
+        let person_cloned = person.clone();
+        self.persons
+            .entry(person.get_id())
+            .or_insert(person.clone());
+        let node = TreeNode::new(person_cloned);
+        self.tree.insert(person.get_id(), node.clone());
+
+        if person.has_parent() {
+            let mother_id = person.mother_id().unwrap();
+            let father_id = person.father_id().unwrap();
+            if let Some(mother) = self.tree.get_mut(&mother_id) {
+                mother.add_child(node.clone());
+            }
+            if let Some(father) = self.tree.get_mut(&father_id) {
+                father.add_child(node.clone());
+            }
+        }
     }
 
     pub fn set_mother(&mut self, person_id: u64, mother_id: u64) -> Result<(), String> {
@@ -566,25 +667,16 @@ impl PersonManager {
             person.set_address(new_address);
         }
     }
-    // pub fn build_family_tree(&self) -> Option<TreeNode<Rc<Person>>> {
-    pub fn build_family_tree(&self) {
-        /*let mut found_tree: bool = false;
-        let mut visited: HashSet<u64> = HashSet::new();
-        let mut root_nodes: HashSet<TreeNode<Rc<Person>>> = HashSet::new();
+
+    pub fn build_family_tree(&self) -> Option<TreeNode<Rc<RefCell<Person>>>> {
+        let mut found_tree: bool = false;
+        let mut root_nodes: Vec<TreeNode<Rc<RefCell<Person>>>> = Vec::new();
 
         for root_person in self.persons.values() {
-            if root_person.children.is_empty() || visited.contains(&root_person.id) {
-                continue;
+            if !root_person.has_parent() {
+                root_nodes.push(self.tree.get(&root_person.get_id()).unwrap().clone())
             }
-
             found_tree = true;
-            visited.insert(root_person.id);
-            let root_node: TreeNode<Rc<Person>> = TreeNode {
-                value: Rc::new(root_person.clone()),
-                children: self.build_tree_recursive(root_person.id, &mut visited),
-            };
-
-            root_nodes.insert(root_node);
         }
 
         if !found_tree {
@@ -595,63 +687,53 @@ impl PersonManager {
             Some(root_nodes.into_iter().next().unwrap())
         } else {
             // Create a dummy "Family" node
-            let max_id = self.persons.keys().max().copied().unwrap_or(0) + 1;
-            let dummy_person = Person {
-                id: max_id,
-                firstname: "Ancestor".to_string(),
-                lastname: "".to_string(),
-                birthday: "".to_string(),
-                gender: Gender::Male,
-                address: Address {
-                    street: "".to_string(),
-                    city: "".to_string(),
-                    state: "".to_string(),
-                    country: "".to_string(),
-                    postal_code: "".to_string(),
-                },
-                marital_status: MaritalStatus::Single,
-                mother: None,
-                father: None,
-                children: Vec::new(),
-            };
-            let dummy_node: TreeNode<Rc<Person>> = TreeNode {
-                value: Rc::new(dummy_person),
-                children: root_nodes.into_iter().collect(),
+            let dummy_person = Person::new(
+                "Ancestor",
+                "",
+                "",
+                Gender::Male,
+                Some(Address::new()),
+                Some(MaritalStatus::Single),
+                None,
+                None,
+            );
+            let dummy_node: TreeNode<Rc<RefCell<Person>>> = TreeNode {
+                value: dummy_person,
+                children: root_nodes,
             };
 
             Some(dummy_node)
-        }*/
-        todo!()
+        }
+        // todo!()
     }
 
     pub fn build_tree_recursive(
         &self,
         person_id: u64,
         visited: &mut HashSet<u64>,
-        // ) -> Vec<TreeNode<Rc<Person>>> {
-    ) {
-        /*let mut children_nodes: HashSet<TreeNode<Rc<Person>>> = HashSet::new();
+    ) -> Vec<TreeNode<Rc<RefCell<Person>>>> {
+        let mut children_nodes: Vec<TreeNode<Rc<RefCell<Person>>>> = Vec::new();
 
         if let Some(person) = self.persons.get(&person_id) {
-            for child_id in &person.children {
-                if visited.contains(child_id) {
-                    continue;
-                }
-                visited.insert(*child_id);
+            // for child_id in &person.children {
+            //     if visited.contains(child_id) {
+            //         continue;
+            //     }
+            //     visited.insert(*child_id);
 
-                if let Some(child_person) = self.persons.get(child_id) {
-                    let child_node = TreeNode {
-                        value: Rc::new(child_person.clone()),
-                        children: self.build_tree_recursive(*child_id, visited),
-                    };
-                    children_nodes.insert(child_node);
-                }
-            }
+            //     if let Some(child_person) = self.persons.get(child_id) {
+            //         let child_node = TreeNode {
+            //             value: child_person.clone(),
+            //             children: self.build_tree_recursive(*child_id, visited),
+            //         };
+            //         children_nodes.push(child_node);
+            //     }
+            // }
         }
 
-        children_nodes.into_iter().collect()*/
+        children_nodes
 
-        todo!()
+        // todo!()
     }
 
     pub fn to_graphviz(&self, file_in: Option<PathBuf>) -> Result<(), String> {
