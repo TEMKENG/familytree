@@ -143,6 +143,32 @@ pub struct Person {
     father: Option<Rc<RefCell<Person>>>,
 }
 
+mod my_serde {
+    use super::{Address, MaritalStatus, Person, PersonInfo};
+    use serde::{self, ser::SerializeStruct, Deserialize, Deserializer, Serialize, Serializer};
+
+    pub fn serialize<S>(person: &Person, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut state = serializer.serialize_struct("Person", 5)?;
+        state.serialize_field("info", &person.info)?;
+        state.serialize_field("address", &person.address)?;
+        state.serialize_field("marital_status", &person.marital_status)?;
+        let mother = person
+            .mother
+            .clone()
+            .map_or(None::<Person>, |p| Some(p.borrow().clone()));
+        let father = person
+            .father
+            .clone()
+            .map_or(None::<Person>, |p| Some(p.borrow().clone()));
+        state.serialize_field("mother", &mother)?;
+        state.serialize_field("father", &father)?;
+        state.end()
+    }
+}
+
 fn serialize_option_rc_person_info<S>(
     value: &Option<Rc<PersonInfo>>,
     serializer: S,
